@@ -34,7 +34,7 @@ public interface ReplicaDRGateway extends Promotable {
 
     public abstract boolean isActive();
 
-    public abstract void start();
+    public abstract void initialize(boolean resumeReplication);
 
     public abstract void shutdown(boolean blocking) throws InterruptedException;
 
@@ -48,7 +48,7 @@ public interface ReplicaDRGateway extends Promotable {
         Map<Integer, Map<Integer, Long>> ids = new HashMap<Integer, Map<Integer, Long>>();
 
         @Override
-        public void start() {}
+        public void initialize(boolean resumeReplication) {}
 
         @Override
         public void acceptPromotion() throws InterruptedException,

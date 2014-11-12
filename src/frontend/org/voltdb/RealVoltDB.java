@@ -758,6 +758,13 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                 VoltDB.crashLocalVoltDB(e.getMessage(), true, e);
             }
 
+            boolean usingCommandLog = m_config.m_isEnterprise &&
+                    m_catalogContext.cluster.getLogconfig().get("log").getEnabled();
+            String clSnapshotPath = null;
+            if (m_catalogContext.cluster.getLogconfig().get("log").getEnabled()) {
+                clSnapshotPath = m_catalogContext.cluster.getLogconfig().get("log").getInternalsnapshotpath();
+            }
+
             // Configure replica-side DR if relevant
             if (m_config.m_isEnterprise && useDRV2 && m_config.m_replicationRole == ReplicationRole.REPLICA) {
                 String drMasterHost = m_catalogContext.cluster.getDrmasterhost();
@@ -769,11 +776,13 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                     Constructor<?> rdrgwConstructor = rdrgwClass.getConstructor(
                             String.class,
                             ClientInterface.class,
-                            boolean.class);
+                            boolean.class,
+                            String.class);
                     m_replicaDRGateway = (ReplicaDRGateway) rdrgwConstructor.newInstance(
                             drMasterHost,
                             m_clientInterface,
-                            true);
+                            usingCommandLog,
+                            clSnapshotPath);
                     m_globalServiceElector.registerService(m_replicaDRGateway);
                 } catch (Exception e) {
                     VoltDB.crashLocalVoltDB("Unable to load DR system", true, e);
@@ -783,11 +792,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
             /*
              * Configure and start all the IV2 sites
              */
-            boolean usingCommandLog = false;
             try {
-                usingCommandLog = m_config.m_isEnterprise &&
-                    m_catalogContext.cluster.getLogconfig().get("log").getEnabled();
-
                 for (Initiator iv2init : m_iv2Initiators) {
                     iv2init.configure(
                             getBackendTargetType(),
@@ -923,11 +928,6 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
 
             // Start elastic join service
             try {
-                String clSnapshotPath = null;
-                if (m_catalogContext.cluster.getLogconfig().get("log").getEnabled()) {
-                    clSnapshotPath = m_catalogContext.cluster.getLogconfig().get("log").getInternalsnapshotpath();
-                }
-
                 if (m_config.m_isEnterprise && TheHashinator.getCurrentConfig().type == HashinatorType.ELASTIC) {
                     Class<?> elasticServiceClass = MiscUtils.loadProClass("org.voltdb.join.ElasticJoinCoordinator",
                                                                           "Elastic join", false);
@@ -2559,7 +2559,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                 m_nodeDRGateway.bindPorts();
             }
             if (m_replicaDRGateway != null) {
-                m_replicaDRGateway.start();
+                // TODO: don't always request a snapshot
+                m_replicaDRGateway.initialize(false);
             }
         } catch (Exception ex) {
             MiscUtils.printPortsInUse(hostLog);

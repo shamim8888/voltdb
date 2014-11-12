@@ -30,6 +30,7 @@ message Subscribe {
     optional fixed64 timestamp = 2;
     optional bool isCovering = 3;
     optional fixed64 rewindToUniqueId = 4;
+    optional bool isSyncing = 5;
 }
 
 message EventAck {
