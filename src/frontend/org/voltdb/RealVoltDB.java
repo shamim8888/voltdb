@@ -236,7 +236,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
 
     boolean m_replicationActive = false;
     private NodeDRGateway m_nodeDRGateway = null;
-    private ReplicaDRGateway m_replicaDRGateway = null;
+    private ConsumerDRGateway m_consumerDRGateway = null;
 
     //Only restrict recovery completion during test
     static Semaphore m_testBlockRecoveryCompletion = new Semaphore(Integer.MAX_VALUE);
@@ -365,7 +365,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
             m_config = config;
             m_startMode = null;
             SnapshotSaveAPI.m_lastAppliedUniqueId.clear();
-            m_replicaDRGateway = new ReplicaDRGateway.DummyReplicaDRGateway();
+            m_consumerDRGateway = new ConsumerDRGateway.DummyConsumerDRGateway();
 
             // set a bunch of things to null/empty/new for tests
             // which reusue the process
@@ -765,25 +765,25 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                 clSnapshotPath = m_catalogContext.cluster.getLogconfig().get("log").getInternalsnapshotpath();
             }
 
-            // Configure replica-side DR if relevant
+            // Configure consumer-side DR if relevant
             if (m_config.m_isEnterprise && useDRV2 && m_config.m_replicationRole == ReplicationRole.REPLICA) {
-                String drMasterHost = m_catalogContext.cluster.getDrmasterhost();
-                if (drMasterHost == null || drMasterHost.isEmpty()) {
-                    VoltDB.crashLocalVoltDB("Cannot start as replica without an enabled DR data connection.");
+                String drProducerHost = m_catalogContext.cluster.getDrmasterhost();
+                if (drProducerHost == null || drProducerHost.isEmpty()) {
+                    VoltDB.crashLocalVoltDB("Cannot start as DR consumer without an enabled DR data connection.");
                 }
                 try {
-                    Class<?> rdrgwClass = Class.forName("org.voltdb.dr2.AgentReceiver");
+                    Class<?> rdrgwClass = Class.forName("org.voltdb.dr2.ConsumerDRGatewayImpl");
                     Constructor<?> rdrgwConstructor = rdrgwClass.getConstructor(
                             String.class,
                             ClientInterface.class,
                             boolean.class,
                             String.class);
-                    m_replicaDRGateway = (ReplicaDRGateway) rdrgwConstructor.newInstance(
-                            drMasterHost,
+                    m_consumerDRGateway = (ConsumerDRGateway) rdrgwConstructor.newInstance(
+                            drProducerHost,
                             m_clientInterface,
                             usingCommandLog,
                             clSnapshotPath);
-                    m_globalServiceElector.registerService(m_replicaDRGateway);
+                    m_globalServiceElector.registerService(m_consumerDRGateway);
                 } catch (Exception e) {
                     VoltDB.crashLocalVoltDB("Unable to load DR system", true, e);
                 }
@@ -805,7 +805,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                             m_memoryStats,
                             m_commandLog,
                             m_nodeDRGateway,
-                            m_replicaDRGateway,
+                            m_consumerDRGateway,
                             m_config.m_executionCoreBindings.poll());
                 }
 
@@ -1948,7 +1948,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                     }
                 }
 
-                shutdownReplicaRole();
+                shutdownReplicationConsumerRole();
 
                 if (m_snapshotIOAgent != null) {
                     m_snapshotIOAgent.shutdown();
@@ -2158,8 +2158,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
 
             // 6. If we are a DR replica, we may care about a
             // deployment update
-            if (m_replicaDRGateway != null) {
-                m_replicaDRGateway.updateCatalog(m_catalogContext);
+            if (m_consumerDRGateway != null) {
+                m_consumerDRGateway.updateCatalog(m_catalogContext);
             }
 
             new ConfigLogging().logCatalogAndDeployment();
@@ -2393,7 +2393,7 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
     {
         if (role == ReplicationRole.NONE && m_config.m_replicationRole == ReplicationRole.REPLICA) {
             consoleLog.info("Promoting replication role from replica to master.");
-            shutdownReplicaRole();
+            shutdownReplicationConsumerRole();
         }
         m_config.m_replicationRole = role;
         if (m_clientInterface != null) {
@@ -2401,10 +2401,10 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
         }
     }
 
-    private void shutdownReplicaRole() {
-        if (m_replicaDRGateway != null) {
+    private void shutdownReplicationConsumerRole() {
+        if (m_consumerDRGateway != null) {
             try {
-                m_replicaDRGateway.shutdown(true);
+                m_consumerDRGateway.shutdown(true);
             } catch (InterruptedException e) {
                 hostLog.warn("Interrupted shutting down dr replication", e);
             }
@@ -2558,9 +2558,9 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
                 m_nodeDRGateway.start();
                 m_nodeDRGateway.bindPorts();
             }
-            if (m_replicaDRGateway != null) {
+            if (m_consumerDRGateway != null) {
                 // TODO: don't always request a snapshot
-                m_replicaDRGateway.initialize(false);
+                m_consumerDRGateway.initialize(false);
             }
         } catch (Exception ex) {
             MiscUtils.printPortsInUse(hostLog);
@@ -2610,8 +2610,8 @@ public class RealVoltDB implements VoltDBInterface, RestoreAgent.Callback
     }
 
     @Override
-    public ReplicaDRGateway getReplicaDRGateway() {
-        return m_replicaDRGateway;
+    public ConsumerDRGateway getConsumerDRGateway() {
+        return m_consumerDRGateway;
     }
 
     @Override
