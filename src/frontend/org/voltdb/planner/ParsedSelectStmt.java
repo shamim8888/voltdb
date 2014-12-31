@@ -26,17 +26,11 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
-import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.hsqldb_voltpatches.VoltXMLElement;
-import org.json_voltpatches.JSONException;
 import org.voltdb.VoltType;
-import org.voltdb.catalog.Column;
-import org.voltdb.catalog.ColumnRef;
 import org.voltdb.catalog.Database;
-import org.voltdb.catalog.Index;
 import org.voltdb.catalog.Table;
 import org.voltdb.compiler.StatementCompiler;
 import org.voltdb.expressions.AbstractExpression;
@@ -48,7 +42,6 @@ import org.voltdb.expressions.ParameterValueExpression;
 import org.voltdb.expressions.TupleValueExpression;
 import org.voltdb.planner.parseinfo.BranchNode;
 import org.voltdb.planner.parseinfo.JoinNode;
-import org.voltdb.planner.parseinfo.StmtSubqueryScan;
 import org.voltdb.planner.parseinfo.StmtTableScan;
 import org.voltdb.planner.parseinfo.StmtTargetTableScan;
 import org.voltdb.plannodes.LimitPlanNode;
@@ -94,10 +87,6 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
     private LimitPlanNode m_limitNodeTop = null;
     private LimitPlanNode m_limitNodeDist = null;
     public boolean m_limitCanPushdown;
-    private long m_limit = -1;
-    private long m_offset = 0;
-    private long m_limitParameterId = -1;
-    private long m_offsetParameterId = -1;
 
     private boolean m_distinct = false;
     private boolean m_hasComplexAgg = false;
@@ -144,7 +133,6 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
                 havingElement = child;
             }
         }
-        parseLimitAndOffset(limitElement, offsetElement);
 
         if (m_aggregationList == null) {
             m_aggregationList = new ArrayList<AbstractExpression>();
@@ -185,7 +173,7 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
         placeTVEsinColumns();
 
         // prepare the limit plan node if it needs one.
-        prepareLimitPlanNode();
+        prepareLimitPlanNode(limitElement, offsetElement);
 
         // Prepare for the AVG push-down optimization only if it might be required.
         if (mayNeedAvgPushdown()) {
@@ -587,49 +575,6 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
         m_aggregationList.addAll(optimalAvgAggs);
     }
 
-    private void parseLimitAndOffset(VoltXMLElement limitNode, VoltXMLElement offsetNode) {
-        String node;
-        if (limitNode != null) {
-            // Parse limit
-            if ((node = limitNode.attributes.get("limit_paramid")) != null)
-                m_limitParameterId = Long.parseLong(node);
-            else {
-                assert(limitNode.children.size() == 1);
-                VoltXMLElement valueNode = limitNode.children.get(0);
-                String isParam = valueNode.attributes.get("isparam");
-                if ((isParam != null) && (isParam.equalsIgnoreCase("true"))) {
-                    m_limitParameterId = Long.parseLong(valueNode.attributes.get("id"));
-                } else {
-                    node = limitNode.attributes.get("limit");
-                    assert(node != null);
-                    m_limit = Long.parseLong(node);
-                }
-            }
-        }
-        if (offsetNode != null) {
-            // Parse offset
-            if ((node = offsetNode.attributes.get("offset_paramid")) != null)
-                m_offsetParameterId = Long.parseLong(node);
-            else {
-                if (offsetNode.children.size() == 1) {
-                    VoltXMLElement valueNode = offsetNode.children.get(0);
-                    String isParam = valueNode.attributes.get("isparam");
-                    if ((isParam != null) && (isParam.equalsIgnoreCase("true"))) {
-                        m_offsetParameterId = Long.parseLong(valueNode.attributes.get("id"));
-                    } else {
-                        node = offsetNode.attributes.get("offset");
-                        assert(node != null);
-                        m_offset = Long.parseLong(node);
-                    }
-                }
-            }
-        }
-
-        // limit and offset can't have both value and parameter
-        if (m_limit != -1) assert m_limitParameterId == -1 : "Parsed value and param. limit.";
-        if (m_offset != 0) assert m_offsetParameterId == -1 : "Parsed value and param. offset.";
-    }
-
     private void parseDisplayColumns(VoltXMLElement columnsNode, boolean isDistributed) {
         for (VoltXMLElement child : columnsNode.children) {
             parseDisplayColumn(child, isDistributed);
@@ -883,23 +828,21 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
         return groupbyElement;
     }
 
-    private void prepareLimitPlanNode () {
-        if (!hasLimitOrOffset()) {
-            return;
-        }
-
-        int limitParamIndex = parameterCountIndexById(m_limitParameterId);
-        int offsetParamIndex = parameterCountIndexById(m_offsetParameterId);;
-
+    private void prepareLimitPlanNode (VoltXMLElement limitXml, VoltXMLElement offsetXml) {
         // The coordinator's top limit graph fragment for a MP plan.
         // If planning "order by ... limit", getNextSelectPlan()
         // will have already added an order by to the coordinator frag.
         // This is the only limit node in a SP plan
-        m_limitNodeTop = new LimitPlanNode();
-        m_limitNodeTop.setLimit((int) m_limit);
-        m_limitNodeTop.setOffset((int) m_offset);
-        m_limitNodeTop.setLimitParameterIndex(limitParamIndex);
-        m_limitNodeTop.setOffsetParameterIndex(offsetParamIndex);
+        m_limitNodeTop = limitPlanNodeFromXml(limitXml, offsetXml);
+
+        if (m_limitNodeTop == null) {
+            return;
+        }
+
+        int limitValue = m_limitNodeTop.getLimit();
+        int offsetValue = m_limitNodeTop.getOffset();
+        long limitParameterId = m_limitNodeTop.getLimitParameterId();
+        long offsetParameterId = m_limitNodeTop.getOffsetParameterId();
 
         // check if limit can be pushed down
         m_limitCanPushdown = !m_distinct;
@@ -919,14 +862,14 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
             m_limitNodeDist = new LimitPlanNode();
             // Offset on a pushed-down limit node makes no sense, just defaults to 0
             // -- the original offset must be factored into the pushed-down limit as a pad on the limit.
-            if (m_limit != -1) {
-                m_limitNodeDist.setLimit((int) (m_limit + m_offset));
+            if (limitValue != -1) {
+                m_limitNodeDist.setLimit((int) (limitValue + offsetValue));
             }
 
             if (hasLimitOrOffsetParameters()) {
-                AbstractExpression left = getParameterOrConstantAsExpression(m_offsetParameterId, m_offset);
+                AbstractExpression left = getParameterOrConstantAsExpression(offsetParameterId, offsetValue);
                 assert (left != null);
-                AbstractExpression right = getParameterOrConstantAsExpression(m_limitParameterId, m_limit);
+                AbstractExpression right = getParameterOrConstantAsExpression(limitParameterId, limitValue);
                 assert (right != null);
                 OperatorExpression expr = new OperatorExpression(ExpressionType.OPERATOR_PLUS, left, right);
                 expr.setValueType(VoltType.INTEGER);
@@ -949,8 +892,10 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
     public String toString() {
         String retval = super.toString() + "\n";
 
-        retval += "LIMIT " + String.valueOf(m_limit) + "\n";
-        retval += "OFFSET " + String.valueOf(m_offset) + "\n";
+        if (m_limitNodeTop != null) {
+            retval += "LIMIT " + String.valueOf(m_limitNodeTop.getLimit()) + "\n";
+            retval += "OFFSET " + String.valueOf(m_limitNodeTop.getOffset()) + "\n";
+        }
 
         retval += "DISPLAY COLUMNS:\n";
         for (ParsedColInfo col : m_displayColumns) {
@@ -1322,23 +1267,29 @@ public class ParsedSelectStmt extends AbstractParsedStmt {
 
     @Override
     public boolean hasLimitOrOffset() {
-        if ((m_limit != -1) || (m_limitParameterId != -1) ||
-            (m_offset > 0) || (m_offsetParameterId != -1)) {
-            return true;
-        }
-        return false;
+        return m_limitNodeTop != null;
     }
 
     public boolean hasLimitOrOffsetParameters() {
-        return m_limitParameterId != -1 || m_offsetParameterId != -1;
-    }
+        if (! hasLimitOrOffset()) {
+            return false;
+        }
+        return m_limitNodeTop.getLimitParameterId() != -1
+                || m_limitNodeTop.getOffsetParameterId() != -1;
+   }
 
     public int getLimitParameterIndex() {
-        return parameterCountIndexById(m_limitParameterId);
+        if (hasLimitOrOffset())
+            return parameterCountIndexById(m_limitNodeTop.getLimitParameterId());
+        else
+            return -1;
     }
 
     public int getOffsetParameterIndex() {
-        return parameterCountIndexById(m_offsetParameterId);
+        if (hasLimitOrOffset())
+            return parameterCountIndexById(m_limitNodeTop.getOffsetParameterId());
+        else
+            return -1;
     }
 
     private AbstractExpression getParameterOrConstantAsExpression(long id, long value) {

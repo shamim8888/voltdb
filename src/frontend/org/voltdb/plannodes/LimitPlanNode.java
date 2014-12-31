@@ -87,6 +87,12 @@ public class LimitPlanNode extends AbstractPlanNode {
         return m_limit;
     }
     /**
+     * @return return param id of the limit, or -1 of not param
+     */
+    public long getLimitParameterId() {
+        return m_limitParameterId;
+    }
+    /**
      * @param limit the limit to set
      */
     public void setLimit(int limit) {
@@ -97,6 +103,12 @@ public class LimitPlanNode extends AbstractPlanNode {
      */
     public int getOffset() {
         return m_offset;
+    }
+    /**
+     * @return return param id of the offset, or -1 of not param
+     */
+    public long getOffsetParameterId() {
+        return m_offsetParameterId;
     }
     /**
      * @param offset the offset to set
