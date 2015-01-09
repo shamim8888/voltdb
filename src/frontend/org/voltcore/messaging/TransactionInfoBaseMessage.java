@@ -17,6 +17,10 @@
 
 package org.voltcore.messaging;
 
+import com.google_voltpatches.common.base.Throwables;
+import org.voltcore.logging.VoltLogger;
+import org.voltdb.iv2.TxnEgo;
+
 import java.io.IOException;
 import java.nio.ByteBuffer;
 
@@ -29,7 +33,7 @@ import java.nio.ByteBuffer;
  *
  */
 public abstract class TransactionInfoBaseMessage extends VoltMessage {
-
+    private static final VoltLogger log = new VoltLogger("HOST");
     protected long m_initiatorHSId;
     protected long m_coordinatorHSId;
     protected long m_txnId;
@@ -145,6 +149,8 @@ public abstract class TransactionInfoBaseMessage extends VoltMessage {
 
     public void setOriginalTxnId(long txnId) {
         m_originalDRTxnId = txnId;
+        log.warn("Setting the original txnId to " + txnId + " " + TxnEgo.txnIdToString(txnId) + " for " + this + "\n" +
+                 Throwables.getStackTraceAsString(new Throwable()));
     }
 
     public long getOriginalTxnId() {

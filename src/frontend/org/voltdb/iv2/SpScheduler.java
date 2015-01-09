@@ -351,6 +351,9 @@ public class SpScheduler extends Scheduler implements SnapshotCompletionInterest
                 response.setResults(clientResponse);
                 m_mailbox.send(response.getInitiatorHSId(), response);
             }
+
+            hostLog.warn("Sequencing for replay, CL " + commandLog + " DR " + dr + " sentinel " + sentinel + " canDeliver " + canDeliver +
+                         "\n" + message);
         }
         else {
             if (replay) {

@@ -34,6 +34,7 @@ import org.voltcore.utils.CoreUtils;
 import org.voltdb.ParameterSet;
 import org.voltdb.VoltDB;
 import org.voltdb.common.Constants;
+import org.voltdb.iv2.TxnEgo;
 import org.voltdb.utils.Encoder;
 import org.voltdb.utils.LogKeys;
 
@@ -865,7 +866,8 @@ public class FragmentTaskMessage extends TransactionInfoBaseMessage
         sb.append("FRAGMENT_TASK (FROM ");
         sb.append(CoreUtils.hsIdToString(m_coordinatorHSId));
         sb.append(") FOR TXN ");
-        sb.append(m_txnId);
+        sb.append(TxnEgo.txnIdToString(m_txnId));
+        sb.append(" ORIG TXN ").append(TxnEgo.txnIdToString(m_originalDRTxnId));
         sb.append(" FOR REPLAY ").append(isForReplay());
         sb.append(", SP HANDLE: ").append(getSpHandle());
         sb.append("\n");

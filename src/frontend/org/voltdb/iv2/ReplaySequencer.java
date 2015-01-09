@@ -23,6 +23,7 @@ import java.util.LinkedList;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 
+import com.google_voltpatches.common.base.Preconditions;
 import org.voltcore.logging.VoltLogger;
 import org.voltcore.messaging.TransactionInfoBaseMessage;
 import org.voltcore.messaging.VoltMessage;
@@ -347,6 +348,11 @@ public class ReplaySequencer
     public boolean offer(long inTxnId, TransactionInfoBaseMessage in)
     {
         ReplayEntry found = m_replayEntries.get(inTxnId);
+        if (inTxnId != in.getTxnId()) {
+            tmLog.warn("ReplaySequencer txnId mismatch: " + TxnEgo.txnIdToString(inTxnId) +
+                       " != " + TxnEgo.txnIdToString(in.getTxnId()) + "\n" + in.toString() + "\n" +
+                       (found == null ? "" : found.toString()));
+        }
 
         if (in instanceof Iv2EndOfLogMessage) {
             m_mpiEOLReached = true;
