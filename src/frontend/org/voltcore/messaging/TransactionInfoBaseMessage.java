@@ -149,8 +149,6 @@ public abstract class TransactionInfoBaseMessage extends VoltMessage {
 
     public void setOriginalTxnId(long txnId) {
         m_originalDRTxnId = txnId;
-        log.warn("Setting the original txnId to " + txnId + " " + TxnEgo.txnIdToString(txnId) + " for " + this + "\n" +
-                 Throwables.getStackTraceAsString(new Throwable()));
     }
 
     public long getOriginalTxnId() {
