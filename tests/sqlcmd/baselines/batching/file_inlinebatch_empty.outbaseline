@@ -1,4 +1,10 @@
+<<<<<<< HEAD
 
 FILE -INLINEBATCH EOF
 
 EOF
+=======
+file -inlinebatch EOF
+EOF
+
+>>>>>>> CORE-team

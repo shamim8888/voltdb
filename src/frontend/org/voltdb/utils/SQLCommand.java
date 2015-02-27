@@ -82,7 +82,6 @@ public class SQLCommand
 
     private static List<String> RecallableSessionLines = new ArrayList<String>();
 
-
     private static String patchErrorMessageWithFile(QueryInfo queryInfo, String message) {
 
         Pattern errorMessageFilePrefix = Pattern.compile("\\[.*:([0-9]+)\\]");
@@ -99,7 +98,7 @@ public class SQLCommand
         try {
             // System.out.println("[Batch DDL mode execution=======]:\n" + qryInfo.getQuery().toString() + "=======\n");
 
-            if (! SQLParser.batchBeginsWithDDLKeyword(queryInfo.getQuery().toString())) {
+            if (! SQLParser.appearsToBeValidDDLBatch(queryInfo.getQuery().toString())) {
                 throw new Exception("Error: This batch begins with a non-DDL statement.  "
                         + "Currently batching is only supported for DDL.");
             }
@@ -169,7 +168,22 @@ public class SQLCommand
             // in Git history hash 837df236c059b5b4362ffca7e7a5426fba1b7f20.
 
             List<QueryInfo> queryBatchList = null;
-            while ((queryBatchList = getInteractiveQueries(interactiveReader)) != null) {
+            while (true) {
+                try {
+                    queryBatchList = getInteractiveQueries(interactiveReader);
+                }
+                catch (Exception ex) {
+                    // If there was a parse error getting interactive
+                    // commands, stop or continue depending on how we're
+                    // configured.
+                    stopOrContinue(ex);
+                    continue;
+                }
+
+                if (queryBatchList == null) {
+                    break;
+                }
+
                 executeQueryWithBatches(queryBatchList);
             }
         }
@@ -291,7 +305,6 @@ public class SQLCommand
                 if (fileInfo != null) {
                     // Get the line(s) from the file(s) to queue as regular database commands
                     // or get back a null if, in the recursive call, stopOrContinue decided to continue.
-
                     List<QueryInfo> contentInfo = readScriptFile(fileInfo, interactiveReader);
                     if (m_returningToPromptAfterError) {
                         // readScriptFile stopped because of an error. Wipe the slate clean.
@@ -843,6 +856,23 @@ public class SQLCommand
             // input stream.
             reader = currentLineReader;
         }
+    }
+
+    /**
+     * Reads a script file and produces the list of commands that need
+     * to be processed.  Note that the "script file" could be an inline
+     * batch, i.e., a "here document" that is coming from the same input stream
+     * as the "file" directive.
+     *
+     * @param fileInfo    Info on the file directive being processed
+     * @param currentLineReader  The current input stream, to be used for "here documents".
+     * @return A list of QueryInfo objects to send to the database
+     */
+    public static List<QueryInfo> readScriptFile(FileInfo fileInfo, SQLCommandLineReader currentLineReader)
+    {
+        BufferedReader bufferedReader = null;
+        List<QueryInfo> statements = null;
+
         try {
             statements = readScriptFromReader(fileInfo, reader);
             return statements;

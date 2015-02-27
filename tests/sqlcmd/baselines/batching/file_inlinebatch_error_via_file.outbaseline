@@ -1,5 +1,12 @@
+<<<<<<< HEAD
 
 drop table r if exists;
 Command succeeded.
 
 drop table t if exists;
+=======
+file scripts/batching/file_inlinebatch_error.in
+Command succeeded.
+Command succeeded.
+
+>>>>>>> CORE-team

@@ -1,2 +1,7 @@
+<<<<<<< HEAD
 
 drop table t if exists;
+=======
+file scripts/batching/file_inlinebatch_no_delimiter.in
+
+>>>>>>> CORE-team

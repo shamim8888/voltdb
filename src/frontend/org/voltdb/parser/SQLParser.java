@@ -416,21 +416,30 @@ public class SQLParser extends SQLPatternFactory
             ";*" +         // optional semicolons
             "\\s*$",       // optional terminating whitespace
             Pattern.CASE_INSENSITIVE);
+
+    // SQLCommand's FILE command.  If this pattern matches, we
+    // assume that the user meant to enter a file command, and
+    // produce appropriate error messages.
     private static final Pattern FileToken = Pattern.compile(
-            "^\\s*" +      // optional indent at start of line
-            "file\\s+" +   // required FILE command token, whitespace terminated
-            "['\"]*" +     // optional opening quotes of either kind (ignored) (?)
-            "([^;'\"]+)" + // file path assumed to end at the next quote or semicolon
-            "['\"]*" +     // optional closing quotes -- assumed to match opening quotes (?)
-            "\\s*" +       // optional whitespace
-            //FIXME: strangely allowing more than one strictly adjacent semicolon.
-            ";*" +         // optional semicolons
-            "\\s*",        // more optional whitespace
+            "^\\s*" +          // optional indent at start of line
+            "file" +           // FILE keyword
+            "(?:(?=\\s|;)|$)", // Must be either followed by whitespace or semicolon
+                               //   (zero-width consumed)
+                               // or the end of the line
             Pattern.CASE_INSENSITIVE);
-    private static final Pattern FileBatchToken = Pattern.compile(
-            "^\\s*" +      // optional indent at start of line
-            "file\\s+" +   // required FILE command token, whitespace terminated
-            "-batch\\s+" + // required -batch option token, whitespace terminated
+
+    private static final Pattern DashBatchToken = Pattern.compile(
+            "\\s+" +   // required preceding whitespace
+            "-batch",  // -batch option, whitespace terminated
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern DashInlineBatchToken = Pattern.compile(
+            "\\s+" +        // required preceding whitespace
+            "-inlinebatch",  // -inlinebatch option, whitespace terminated
+            Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern FilenameToken = Pattern.compile(
+            "\\s+" +        // required preceding whitespace
             "['\"]*" +     // optional opening quotes of either kind (ignored) (?)
             "([^;'\"]+)" + // file path assumed to end at the next quote or semicolon
             "['\"]*" +     // optional closing quotes -- assumed to match opening quotes (?)
@@ -447,6 +456,12 @@ public class SQLParser extends SQLPatternFactory
             "\\s*",              // optional whitespace
             Pattern.CASE_INSENSITIVE);
 
+
+    private static final Pattern DelimiterToken = Pattern.compile(
+            "\\s+" +        // required preceding whitespace
+            "([^\\s;]+)" +  // a string of characters not containing semis or spaces
+            "\\s*;?\\s*",   // an optional semicolon surrounded by whitespace
+            Pattern.CASE_INSENSITIVE);
 
     // Query Execution
     private static final Pattern ExecuteCall = Pattern.compile(
@@ -1083,24 +1098,62 @@ public class SQLParser extends SQLPatternFactory
      */
     public static FileInfo parseFileStatement(String statement)
     {
-        Matcher batchMatcher = FileBatchToken.matcher(statement);
-        if (batchMatcher.matches()) {
-            return new FileInfo(FileOption.BATCH, batchMatcher.group(1));
+        Matcher fileMatcher = FileToken.matcher(statement);
+
+        if (! fileMatcher.lookingAt()) {
+            // This input does not start with FILE,
+            // so it's not a file command, it's something else.
+            // Return to caller a null and no errors.
+            return null;
         }
 
-        Matcher inlineBatchMatcher = FileInlineBatchToken.matcher(statement);
-        if (inlineBatchMatcher.matches()) {
-            return new FileInfo(FileOption.INLINEBATCH, inlineBatchMatcher.group(1));
+        String remainder = statement.substring(fileMatcher.end(), statement.length());
+
+        Matcher inlineBatchMatcher = DashInlineBatchToken.matcher(remainder);
+        if (inlineBatchMatcher.lookingAt()) {
+            remainder = remainder.substring(inlineBatchMatcher.end(), remainder.length());
+            Matcher delimiterMatcher = DelimiterToken.matcher(remainder);
+
+            // use matches here (not lookingAt) because we want to match
+            // all of the remainder, not just beginning
+            if (delimiterMatcher.matches()) {
+                String delimiter = delimiterMatcher.group(1);
+                return new FileInfo(FileOption.INLINEBATCH, delimiter);
+            }
+
+            throw new SQLParser.Exception(
+                    "Did not find valid delimiter for \"file -inlinebatch\" command.");
         }
 
-        // Note: this pattern can match a lot of stuff that it probably
-        // shouldn't.  See ENG-7794.
-        Matcher matcher = FileToken.matcher(statement);
-        if (matcher.matches()) {
-            return new FileInfo(FileOption.PLAIN, matcher.group(1));
+        // It is either a plain or a -batch file command.
+        FileOption option = FileOption.PLAIN;
+        Matcher batchMatcher = DashBatchToken.matcher(remainder);
+        if (batchMatcher.lookingAt()) {
+            option = FileOption.BATCH;
+            remainder = remainder.substring(batchMatcher.end(), remainder.length());
         }
 
-        return null;
+        Matcher filenameMatcher = FilenameToken.matcher(remainder);
+        String filename = null;
+
+        // Use matches to match all input, not just beginning
+        if (filenameMatcher.matches()) {
+            filename = filenameMatcher.group(1);
+
+            // Trim whitespace from beginning and end of the file name.
+            // User may have wanted quoted whitespace at the beginning or end
+            // of the file name, but that seems very unlikely.
+            filename = filename.trim();
+        }
+
+        // If no filename, or a filename of only spaces, then throw an error.
+        if (filename == null || filename.length() == 0) {
+            String msg = String.format("Did not find valid file name in \"file%s\" command.",
+                    option == FileOption.BATCH ? " -batch" : "");
+            throw new SQLParser.Exception(msg);
+        }
+
+        return new FileInfo(option, filename);
     }
 
     /**
@@ -1421,12 +1474,17 @@ public class SQLParser extends SQLPatternFactory
     }
 
     /**
-     * Make sure that a batch starts with a DDL statement by checking the first keyword.
+     * Make sure that the batch starts with an appropriate DDL verb.  We do not
+     * look further than the first token of the first non-comment and non-whitespace line.
+     *
+     * Empty batches are considered to be trivially valid.
+     *
      * @param batch  A SQL string containing multiple statements separated by semicolons
      * @return true if the first keyword of the first statement is a DDL verb
-     *     like CREATE, ALTER, DROP, PARTITION, or EXPORT
+     *     like CREATE, ALTER, DROP, PARTITION, or EXPORT, or if the
+     *     batch is empty.
      */
-    public static boolean batchBeginsWithDDLKeyword(String batch) {
+    public static boolean appearsToBeValidDDLBatch(String batch) {
 
         BufferedReader reader = new BufferedReader(new StringReader(batch));
         String line;
@@ -1448,7 +1506,7 @@ public class SQLParser extends SQLPatternFactory
         }
 
 
-        // degenerate batch: no lines are non-blank or non-comment
-        return false;
+        // trivial empty batch: no lines are non-blank or non-comments
+        return true;
     }
 }

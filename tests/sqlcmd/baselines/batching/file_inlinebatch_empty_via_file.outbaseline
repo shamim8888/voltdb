@@ -1,4 +1,9 @@
+<<<<<<< HEAD
 
 FILE -INLINEBATCH EOF
 
 EOF
+=======
+file scripts/batching/file_inlinebatch_empty.in
+
+>>>>>>> CORE-team
