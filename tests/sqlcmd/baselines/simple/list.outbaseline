@@ -1,0 +1,59 @@
+
+drop table t if exists;
+Command succeeded.
+
+drop procedure p if exists;
+Command succeeded.
+
+create table t ( c integer );
+Command succeeded.
+
+create procedure p as select * from t;
+Command succeeded.
+
+--- User Tables --------------------------------------------
+T
+
+
+--- User Views --------------------------------------------
+
+
+--- User Export Streams --------------------------------------------
+
+
+--- System Procedures --------------------------------------
+@ApplyBinaryLogSP         	varbinary, varbinary
+@Explain                  	varchar
+@ExplainProc              	varchar
+@GC                       
+@GetPartitionKeys         	varchar
+@Pause                    
+@Promote                  
+@Quiesce                  
+@Resume                   
+@Shutdown                 
+@SnapshotDelete           	varchar, varchar
+@SnapshotRestore          	varchar, varchar
+@SnapshotRestore          	varchar
+@SnapshotSave             	varchar, varchar, bit
+@SnapshotSave             	varchar
+@SnapshotScan             	varchar
+@SnapshotStatus           
+@Statistics               	statisticscomponent, bit
+@StopNode                 	int
+@SystemCatalog            	metadataselector
+@SystemInformation        	sysinfoselector
+@UpdateApplicationCatalog 	varchar, varchar
+@UpdateClasses            	varchar, varchar
+@UpdateLogging            	varchar
+@ValidatePartitioning     	int, varbinary
+
+--- User Procedures ----------------------------------------
+T.insert                  	integer
+p                         
+
+
+list procedures
+show classes
+
+show tables;

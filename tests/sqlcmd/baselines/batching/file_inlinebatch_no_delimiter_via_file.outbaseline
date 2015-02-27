@@ -1,6 +1,2 @@
 
 drop table t if exists;
-Command succeeded.
-
-drop table s if exists;
-Command succeeded.

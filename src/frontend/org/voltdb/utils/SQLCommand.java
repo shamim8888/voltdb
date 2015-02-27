@@ -242,6 +242,9 @@ public class SQLCommand
                 // RECALL command
                 ParseRecallResults recallParseResults = SQLParser.parseRecallStatement(line, RecallableSessionLines.size() - 1);
                 if (recallParseResults != null) {
+                    // Trying to use accessors like getError() and getLine() here in place
+                    // of the direct attribute access gets a mysterious NoSuchMethodError.
+                    // At least the attributes are declared final.
                     if (recallParseResults.error == null) {
                         line = RecallableSessionLines.get(recallParseResults.line);
                         interactiveReader.putString(line);
@@ -249,7 +252,7 @@ public class SQLCommand
                         isRecall = true;
                     }
                     else {
-                        System.out.printf("%d> %s\n%d", RecallableSessionLines.size(), recallParseResults.error);
+                        System.out.println(recallParseResults.error);
                     }
                     executeImmediate = false; // let user edit the recalled line.
                     continue;
@@ -515,8 +518,10 @@ public class SQLCommand
 
                 // process other non-interactive directives
                 if (executesAsSimpleDirective(line)) {
+                    //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader simple directive " + line);
                     continue;
                 }
+                //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader not a simple directive " + line);
 
                 // returns the original command, or a replacement command, or throws.
                 line = SQLParser.translateStatement(line);
@@ -631,7 +636,7 @@ public class SQLCommand
         // SHOW or LIST <blah> statement
         String subcommand = SQLParser.parseShowStatementSubcommand(line);
         if (subcommand != null) {
-            if (subcommand.equals("proc") || subcommand.equals("procedure")) {
+            if (subcommand.equals("proc") || subcommand.equals("procedures")) {
                execListProcedures();
             }
             else if (subcommand.equals("tables")) {
@@ -641,7 +646,11 @@ public class SQLCommand
                 execListClasses();
             }
             else {
-                System.out.printf("%d> Bad SHOW target: %s\n%d", RecallableSessionLines.size(), subcommand);
+                String errorCase = subcommand.equals("") ?
+                        ("Incomplete SHOW command.\n") :
+                        ("Invalid SHOW command completion: '" + subcommand + "'.\n");
+                System.out.println(errorCase +
+                        "The valid SHOW command completions are proc, procedure, tables, or classes.");
             }
             // Consider it handled here, whether or not it was a good SHOW statement.
             return true;

@@ -1,0 +1,4 @@
+Unexpected Ad Hoc Planning Error: java.lang.RuntimeException: Error compiling query: org.voltdb.planner.PlanningErrorException: SQL Syntax error in "list procedures
+show classes
+
+show tables" unexpected token: LIST
