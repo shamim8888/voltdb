@@ -868,6 +868,11 @@ public class SQLParser extends SQLPatternFactory
         return queries;
     }
 
+    public static boolean parseWholeLineComment(String line)
+    {
+        return SingleLineComments.matcher(line).matches();
+    }
+
     public static List<String> parseProcedureCallParameters(String query)
     {
         if (query == null) {
@@ -1034,7 +1039,16 @@ public class SQLParser extends SQLPatternFactory
                     ", file: \"" + m_file.getName() +
                     "\", delimiter: " + m_delimiter;
         }
+
+        public String canonicalBatchCommandString() {
+            // TODO Auto-generated method stub
+            return "FILE -" + m_option.name() + " " +
+                    ( m_file == null ? m_delimiter : m_file.getPath());
+        }
     }
+
+    /** @return a dummy FileInfo instance to describe System.in **/
+    public static FileInfo systemInFileInfo() { return new FileInfo(FileOption.PLAIN, "Standard Input"); }
 
     /**
      * Parse FILE statement for sqlcmd.
