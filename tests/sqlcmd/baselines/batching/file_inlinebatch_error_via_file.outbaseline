@@ -1,4 +1,13 @@
-file scripts/batching/file_inlinebatch_error.in
-Command succeeded.
+
+drop table r if exists;
 Command succeeded.
 
+drop table t if exists;
+Command succeeded.
+
+FILE -INLINEBATCH EOF
+create table t (i integer);
+create table r (i integer);
+create table t (i integer);
+
+EOF

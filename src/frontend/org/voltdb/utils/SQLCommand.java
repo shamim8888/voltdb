@@ -433,13 +433,13 @@ public class SQLCommand
     }
 
     /**
-     *
      * @param fileInfo  The FileInfo object describing the file command (or stdin)
      * @param script    The line reader object to read from
      * @throws Exception
      */
     private static void executeScriptFromReader(FileInfo fileInfo, SQLCommandLineReader script)
             throws Exception {
+        //* enable to debug */ System.out.println("DEBUGGING STARTING executeScriptFromReader for " + fileInfo);
         StringBuilder query = new StringBuilder();
         boolean queryHasContent = false;
         StringBuilder batch = fileInfo.isBatch() ? new StringBuilder() : null;
@@ -458,26 +458,34 @@ public class SQLCommand
                              "\" indicating end of inline batch.  No batched statements were executed.");
                 }
                 if (delimiter.equals(line)) {
+                    //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader at delimiter: " + line);
                     line = null;
                 }
             }
             if (line == null) {
                 // No more lines.  Execute whatever we got.
-                if (query.length() > 0) {
-                    if (batch == null) {
+                if (batch == null) {
+                    if (queryHasContent) {
+                        //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader execute last statement: " + query);
                         executeQuery(query, fileInfo);
                     }
-                    else {
-                        // This means that batch did not end with a semicolon.
-                        // Maybe it ended with a comment.
-                        // For now, treat the final semicolon as optional and
-                        // assume that we are not just adding a partial statement to the batch.
-                        batch.append(query);
-                        executeBatch(batch, fileInfo);
-                    }
                 }
+                else {
+                    // This means that batch did not end with a semicolon.
+                    // Maybe it ended with a comment.
+                    // For now, treat the final semicolon as optional and
+                    // assume that we are not just adding a partial statement to the batch.
+                    if (queryHasContent) {
+                        //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader batch last statement: " + query);
+                        batch.append(query);
+                    }
+                    //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader execute lastbatch: " + batch);
+                    executeBatch(batch, fileInfo);
+                }
+                //* enable to debug */ System.out.println("DEBUGGING EXITING executeScriptFromReader for " + fileInfo);
                 return;
             }
+            //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader at line: " + line);
 
             if ( ! queryHasContent) {
                 // Recursively process FILE commands, any failure will cause a recursive failure
@@ -492,8 +500,9 @@ public class SQLCommand
 
                     // Execute the file content or fail to but only set m_returningToPromptAfterError
                     // if the intent is to cause a recursive failure, stopOrContinue decided to stop.
-                    executeScriptFromReader(nestedFileInfo, script);
+                    executeScriptFile(nestedFileInfo, script);
                     if (m_returningToPromptAfterError) {
+                        //* enable to debug */ System.out.println("DEBUGGING ERRORING executeScriptFromReader" + fileInfo);
                         // The recursive readScriptFile stopped because of an error.
                         // Escape to the outermost readScriptFile caller so it can exit or
                         // return to the interactive prompt.
@@ -543,15 +552,19 @@ public class SQLCommand
             // End of AdHoc statement  -- or statements if others were started on the same line as
             // a terminating semicolon.
 
+            // Be ready for a directive on the next line.
+            queryHasContent = false;
+
             if (batch == null) {
+                //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader exec stmt no batch");
                 // Not batching. It's time for actual execution.
                 query.append(line);
                 executeQuery(query, fileInfo);
                 query.setLength(0);
-                queryHasContent = false;
                 continue;
             }
 
+            //* enable to debug */ System.out.println("DEBUGGING executeScriptFromReader add stmt to batch");
             // Complete batched commands cannot be executed immediately,
             // nor can they be allowed to linger in the query StringBuilder, since
             // this would interfere with intercepting erroneously batched directives,
@@ -560,10 +573,53 @@ public class SQLCommand
             // upon finding the delimiter.
             batch.append(query).append(line).append("\n");
             query.setLength(0);
-            queryHasContent = false;
-
         } // end while we are reading input
     }
+
+
+    /**
+     * Reads a script file and executes its commands. that need
+     * Note that the "script file" could be an inline batch,
+     * i.e., a "here document" that is coming from the same input stream
+     * as the "file" directive.
+     *
+     * @param fileInfo    Info on the file directive being processed
+     * @param currentLineReader  The current input stream, to be used for "here documents".
+     */
+    public static void executeScriptFile(FileInfo fileInfo, SQLCommandLineReader parentLineReader)
+    {
+        LineReaderAdapter script = null;
+        SQLCommandLineReader reader = null;
+
+        if (fileInfo.getOption() != FileOption.INLINEBATCH) {
+            try {
+                reader = script = new LineReaderAdapter(new FileReader(fileInfo.getFile()));
+            }
+            catch (FileNotFoundException e) {
+                System.err.println("Script file '" + fileInfo.getFile().getName() + "' could not be found.");
+                stopOrContinue(e);
+                return; // continue to the next line after the FILE command
+            }
+        }
+        else {
+            // File command is a "here document" use the current input stream.
+            reader = parentLineReader;
+        }
+        try {
+            executeScriptFromReader(fileInfo, reader);
+        }
+
+        catch (Exception x) {
+            stopOrContinue(x);
+            return;
+        }
+        finally {
+            if (script != null) {
+                script.close();
+            }
+        }
+    }
+
 
     /// Simple directives require only the input line and no other context from the input loop.
     /// Return true if the line is a directive that has been completely handled here, so that the

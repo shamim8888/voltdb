@@ -1,0 +1,1 @@
+Error: This batch begins with a non-DDL statement.  Currently batching is only supported for DDL.
